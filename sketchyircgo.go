@@ -11,9 +11,33 @@ type IRCInstance struct {
 	Address string
 	Username string
 	Password string
-	Connected bool
-	Conn *net.TCPConn
+	Connected  bool
+	Conn       *net.TCPConn
 	LastActive time.Time
+}
+
+type Channel struct {
+	Name       string
+	Moderators []*User
+}
+
+type Message struct {
+	Channel *Channel
+	Time    time.Time
+	Author  *User
+	Type    string
+}
+
+type User struct {
+	Name      string
+	Moderator bool
+	// For Twitch Only Below
+	Subscriber  bool
+	Broadcaster bool
+	Turbo       bool
+	Staff       bool
+	GlobalMod   bool
+	DisplayName string
 }
 
 func send(c *net.TCPConn, s string) {
@@ -133,11 +157,19 @@ func connWatchdog(Instance *IRCInstance) {
 	}
 }
 
-func New(address, username, password string) *IRCInstance {
-	return &IRCInstance{Address: address, Username: username, Password: password, Connected: false}
+func (Instance *IRCInstance) JoinChannel(channelName string) {
+	if !strings.HasPrefix(channelName, "#") {
+		channelName = "#" + channelName
+	}
+	send(Instance.Conn, "JOIN "+channelName)
+	send(Instance.Conn, "CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands")
 }
 
-func (Instance *IRCInstance) Run() {
+func New(address, username, password string) *IRCInstance {
+	return &IRCInstance{Address: address, Username: username, Password: password}
+}
+
+func (Instance *IRCInstance) RunIRC() {
 	var sock *net.TCPConn
 	for {
 		tempSock, err := connect(Instance.Address, Instance.Username, Instance.Password)
