@@ -3,12 +3,8 @@ package sketchyircgo
 import (
 	"strings"
 	"time"
-	"sync"
 )
 
-var (
-	IRCInstanceLock sync.RWMutex
-)
 
 func (Instance *IRCInstance) JoinChannel(channelName string) {
 	if !strings.HasPrefix(channelName, "#") {
@@ -18,10 +14,37 @@ func (Instance *IRCInstance) JoinChannel(channelName string) {
 	if Instance.TwitchIRC {
 		Instance.send("CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands")
 	}
+	Instance.SafetyLock.Lock()
+	Instance.Channels = append(Instance.Channels, &Channel{Name: channelName})
+	Instance.SafetyLock.Unlock()
+}
+
+func (Instance *IRCInstance) PartChannel(channelName string) {
+	if !strings.HasPrefix(channelName, "#") {
+		channelName = "#" + channelName
+	}
+	Instance.send("PART " + channelName)
+	Instance.SafetyLock.Lock()
+	for index, channel := range Instance.Channels {
+		if channel.Name == channelName {
+			copy(Instance.Channels[index:], Instance.Channels[index+1:])
+			Instance.Channels[len(Instance.Channels)-1] = nil
+			Instance.Channels = Instance.Channels[:len(Instance.Channels)-1]
+			break
+		}
+	}
+	Instance.SafetyLock.Unlock()
 }
 
 func New(address, username, password string) *IRCInstance {
 	return &IRCInstance{Address: address, Username: username, Password: password}
+}
+
+func (Instance *IRCInstance) SendMessage(channelName, message string) {
+	if !strings.HasPrefix(channelName, "#") {
+		channelName = "#" + channelName
+	}
+	Instance.send("PRIVMSG "+ channelName+" :"+message)
 }
 
 func (Instance *IRCInstance) RunIRC() {
@@ -31,17 +54,17 @@ func (Instance *IRCInstance) RunIRC() {
 		buf := make([]byte, 8192)
 		l, err := Instance.Conn.Read(buf)
 		if err != nil {
-			IRCInstanceLock.Lock()
+			Instance.SafetyLock.Lock()
 			Instance.Connected = false
-			IRCInstanceLock.Unlock()
+			Instance.SafetyLock.Unlock()
 			// TODO add reconnect
 		}
 		if l < 1 {
 			continue
 		}
-		IRCInstanceLock.Lock()
+		Instance.SafetyLock.Lock()
 		Instance.LastActive = time.Now()
-		IRCInstanceLock.Unlock()
+		Instance.SafetyLock.Unlock()
 		rawMessageSplit := strings.Split(string(buf[:l]), "\r\n")
 		for i := 0; i < len(rawMessageSplit); i++ {
 			parsedMessageSplit := strings.Split(rawMessageSplit[i], " ")
@@ -90,15 +113,7 @@ func (Instance *IRCInstance) RunIRC() {
 				writeLog("* " + user + " has quit the chat. (" + msg + ")")
 				continue
 			case "MODE":
-				user, _ := parseSender(rawMessageSplit[i])
-				packet := strings.Split(rawMessageSplit[i], " ")
-				if len(packet) < 5 {
-					continue
-				}
-				if packet[4] == "" {
-					//packet[4] = Bot.Channel
-				}
-				writeLog("*** " + user + " set mode " + packet[3] + " for " + packet[4])
+				Instance.ircMODE(rawMessageSplit[i])
 				continue
 			case "KICK":
 				user, msg := parseMsg(rawMessageSplit[i])

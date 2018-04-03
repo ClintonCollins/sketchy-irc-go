@@ -6,7 +6,9 @@ var (
 	messageEventHandlers        []func(*IRCInstance, *Message)
 	messageEventHandlersLock    sync.RWMutex
 	serverJoinEventHandlers     []func(*IRCInstance)
-	ServerJoinEventHandlersLock sync.RWMutex
+	serverJoinEventHandlersLock sync.RWMutex
+	modeChangeEventHandlers     []func(*IRCInstance, *ModeChange)
+	modeChangeEventHandlersLock sync.RWMutex
 )
 
 func (Instance *IRCInstance) NewMessageListener(function func(*IRCInstance, *Message)) {
@@ -23,16 +25,30 @@ func (Instance *IRCInstance) sendMessageListener(instance *IRCInstance, message 
 	messageEventHandlersLock.Unlock()
 }
 
+func (Instance *IRCInstance) NewModeChangeListener(function func(*IRCInstance, *ModeChange)) {
+	modeChangeEventHandlersLock.Lock()
+	modeChangeEventHandlers = append(modeChangeEventHandlers, function)
+	modeChangeEventHandlersLock.Unlock()
+}
+
+func (Instance *IRCInstance) sendModeChangeListener(instance *IRCInstance, userMode *ModeChange) {
+	modeChangeEventHandlersLock.Lock()
+	for _, listener := range modeChangeEventHandlers {
+		listener(instance, userMode)
+	}
+	modeChangeEventHandlersLock.Unlock()
+}
+
 func (Instance *IRCInstance) NewServerReadyListener(function func(*IRCInstance)) {
-	ServerJoinEventHandlersLock.Lock()
+	serverJoinEventHandlersLock.Lock()
 	serverJoinEventHandlers = append(serverJoinEventHandlers, function)
-	ServerJoinEventHandlersLock.Unlock()
+	serverJoinEventHandlersLock.Unlock()
 }
 
 func (Instance *IRCInstance) sendServerReadyListener(instance *IRCInstance) {
-	ServerJoinEventHandlersLock.Lock()
+	serverJoinEventHandlersLock.Lock()
 	for _, listener := range serverJoinEventHandlers {
 		listener(instance)
 	}
-	ServerJoinEventHandlersLock.Unlock()
+	serverJoinEventHandlersLock.Unlock()
 }

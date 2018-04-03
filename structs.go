@@ -3,6 +3,7 @@ package sketchyircgo
 import (
 	"net"
 	"time"
+	"sync"
 )
 
 type IRCInstance struct {
@@ -14,6 +15,7 @@ type IRCInstance struct {
 	LastActive time.Time
 	TwitchIRC  bool
 	Channels   []*Channel
+	SafetyLock sync.RWMutex
 }
 
 type Channel struct {
@@ -40,4 +42,13 @@ type User struct {
 	GlobalMod   bool
 	Staff       bool
 	Admin       bool
+}
+
+type ModeChange struct {
+	Channel  *Channel
+	Message  string
+	Time     time.Time
+	Sender   string
+	Receiver string
+	Mode     string
 }

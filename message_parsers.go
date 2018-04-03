@@ -26,6 +26,25 @@ func parseIRCPrivMsg(rawMessage string) (*Message, error) {
 	return &newMessage, nil
 }
 
+func parseModeChange(rawmessage string) (*ModeChange, error) {
+	writeLog(rawmessage)
+	rawMessageSplit := strings.Split(rawmessage, " ")
+	if len(rawMessageSplit) < 5 {
+		return &ModeChange{}, errors.New("couldn't parse mode change")
+	}
+	mode := rawMessageSplit[3]
+	sender := strings.TrimPrefix(rawMessageSplit[0], ":")
+	receiver := rawMessageSplit[4]
+	channelName := rawMessageSplit[2]
+	newMode := ModeChange{
+		Channel: &Channel{Name: channelName},
+		Mode: mode,
+		Receiver: receiver,
+		Sender: sender,
+	}
+	return &newMode, nil
+}
+
 // Parses most IRC packets
 func parseMsg(s string) (user, msg string) {
 	user, _ = parseSender(s)

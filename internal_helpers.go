@@ -18,18 +18,18 @@ func (Instance *IRCInstance) connect(Address, Username, OAuth string) {
 		panic(err)
 	}
 	s, err := net.DialTCP("tcp", nil, raddr)
-	IRCInstanceLock.Lock()
+	Instance.SafetyLock.Lock()
 	Instance.Conn = s
-	IRCInstanceLock.Unlock()
+	Instance.SafetyLock.Unlock()
 	if err != nil {
-		IRCInstanceLock.Lock()
+		Instance.SafetyLock.Lock()
 		Instance.Connected = false
-		IRCInstanceLock.Unlock()
+		Instance.SafetyLock.Unlock()
 		panic(err)
 	} else {
-		IRCInstanceLock.Lock()
+		Instance.SafetyLock.Lock()
 		Instance.Connected = true
-		IRCInstanceLock.Unlock()
+		Instance.SafetyLock.Unlock()
 		Instance.send("PASS " + OAuth)
 		Instance.send("NICK " + Username)
 		Instance.send("USER " + Username + Username + Address + " :" + Username)
@@ -48,18 +48,18 @@ func writeLog(s string) {
 }
 
 func connWatchdog(Instance *IRCInstance) {
-	IRCInstanceLock.Lock()
+	Instance.SafetyLock.Lock()
 	Instance.LastActive = time.Now()
-	IRCInstanceLock.Unlock()
+	Instance.SafetyLock.Unlock()
 	for {
 		time.Sleep(1 * time.Second)
-		IRCInstanceLock.RLock()
+		Instance.SafetyLock.RLock()
 		timeSinceActive := time.Since(Instance.LastActive)
-		IRCInstanceLock.RUnlock()
+		Instance.SafetyLock.RUnlock()
 		if timeSinceActive > 300*time.Second {
-			IRCInstanceLock.Lock()
+			Instance.SafetyLock.Lock()
 			Instance.Conn.Close()
-			IRCInstanceLock.Unlock()
+			Instance.SafetyLock.Unlock()
 			return
 		}
 	}
