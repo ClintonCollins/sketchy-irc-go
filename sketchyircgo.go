@@ -11,6 +11,9 @@ type IRCInstance struct {
 	Address string
 	Username string
 	Password string
+	Connected bool
+	Conn *net.TCPConn
+	LastActive time.Time
 }
 
 func send(c *net.TCPConn, s string) {
@@ -119,8 +122,19 @@ func writeLog(s string) {
 	fmt.Println("[" + time.Now().Format("2006/01/02 15:04:05") + "] <- " + s)
 }
 
+func connWatchdog(Instance *IRCInstance) {
+	Instance.LastActive = time.Now()
+	for {
+		time.Sleep(1 * time.Second)
+		if time.Since(Instance.LastActive) > 300 * time.Second {
+			Instance.Conn.Close()
+			return
+		}
+	}
+}
+
 func New(address, username, password string) *IRCInstance {
-	return &IRCInstance{Address: address, Username: username, Password: password}
+	return &IRCInstance{Address: address, Username: username, Password: password, Connected: false}
 }
 
 func (Instance *IRCInstance) Run() {
@@ -129,20 +143,24 @@ func (Instance *IRCInstance) Run() {
 		tempSock, err := connect(Instance.Address, Instance.Username, Instance.Password)
 		if !err {
 			sock = tempSock
+			Instance.Connected = true
 			break
 		}
 		writeLog("*** ERROR: Failed to connect to server, retrying in 10 seconds")
 		time.Sleep(10 * time.Second)
 	}
+	go connWatchdog(Instance)
 	for {
 		buf := make([]byte, 8192)
 		l, err := sock.Read(buf)
 		if err != nil {
-			handle(sock, err)
+			Instance.Connected = false
+			handle(sock, err) // TODO: Make this not just crash and burn on disconnect
 		}
 		if l < 1 {
 			continue
 		}
+		Instance.LastActive = time.Now()
 		recv := strings.Split(string(buf[:l]), "\r\n")
 		for i := 0; i < len(recv); i++ {
 			temp := strings.Split(recv[i], " ")
