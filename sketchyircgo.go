@@ -1,19 +1,23 @@
-package sketchy_irc_go
+package sketchyircgo
 
 import (
 	"strings"
 	"net"
 	"time"
 	"fmt"
+	"sync"
+	"errors"
 )
 
 type IRCInstance struct {
-	Address string
-	Username string
-	Password string
+	Address    string
+	Username   string
+	Password   string
 	Connected  bool
 	Conn       *net.TCPConn
 	LastActive time.Time
+	TwitchIRC  bool
+	Channels   []*Channel
 }
 
 type Channel struct {
@@ -23,6 +27,7 @@ type Channel struct {
 
 type Message struct {
 	Channel *Channel
+	Message string
 	Time    time.Time
 	Author  *User
 	Type    string
@@ -35,58 +40,132 @@ type User struct {
 	Subscriber  bool
 	Broadcaster bool
 	Turbo       bool
-	Staff       bool
-	GlobalMod   bool
 	DisplayName string
+	GlobalMod   bool
+	Staff       bool
+	Admin       bool
 }
 
-func send(c *net.TCPConn, s string) {
-	c.Write([]byte(s + "\r\n"))
-	fmt.Println("[" + time.Now().Format("2006/01/02 15:04:05") + "] -> " + s)
+var (
+	IRCInstanceLock sync.RWMutex
+)
+
+func (Instance *IRCInstance) send(message string) {
+	Instance.Conn.Write([]byte(message + "\r\n"))
+	fmt.Println("[" + time.Now().Format("2006/01/02 15:04:05") + "] -> " + message)
 }
 
 // Wrapper to easily connect to an IRC server
-func connect(Address, Username, OAuth string) (socket *net.TCPConn, error bool) {
+func (Instance *IRCInstance) connect(Address, Username, OAuth string) {
 	raddr, err := net.ResolveTCPAddr("tcp", Address)
 	if err != nil {
 		panic(err)
 	}
 	s, err := net.DialTCP("tcp", nil, raddr)
+	IRCInstanceLock.Lock()
+	Instance.Conn = s
+	IRCInstanceLock.Unlock()
 	if err != nil {
-		return s, true
+		IRCInstanceLock.Lock()
+		Instance.Connected = false
+		IRCInstanceLock.Unlock()
+		panic(err)
+	} else {
+		IRCInstanceLock.Lock()
+		Instance.Connected = true
+		IRCInstanceLock.Unlock()
+		Instance.send("PASS " + OAuth)
+		Instance.send("NICK " + Username)
+		Instance.send("USER " + Username + Username + Address + " :" + Username)
 	}
-	send(s, "PASS "+OAuth)
-	send(s, "NICK "+Username)
-	send(s, "USER "+Username+Username+Address+" :"+Username)
-	return s, false
 }
 
 // Gracefully exit server and throw a stack trace when closing
-func handle(s *net.TCPConn, e error) {
-	send(s, "QUIT :Segfault >:O")
+func (Instance *IRCInstance) handle(s *net.TCPConn, e error) {
+	Instance.send("QUIT :Segfault >:O")
 	panic(e)
 }
 
-// Parses most IRC packets
-func parseTagsMsg(s string) (user, msg string) {
-	user, _ = parseTagsSender(s)
-	msg = s
-	chop := msg[strings.Index(s, " :")+2:]
-	msg = chop[strings.Index(chop, " :")+2:]
-	return user, msg
+func parseTwitchPrivMsg(rawMessage string) (*Message, error) {
+	rawMessageSplit := strings.Split(rawMessage, " ")
+	usernameSplit := rawMessageSplit[1]
+	username := usernameSplit[1:]
+	if len(rawMessageSplit) < 5 {
+		return &Message{}, errors.New("couldn't parse message")
+	}
+	channel := rawMessageSplit[3]
+	messageString := strings.Join(rawMessageSplit[4:], " ")
+	message := strings.TrimPrefix(messageString, ":")
+	badgesSplit := strings.Split(rawMessageSplit[0], ";")
+	moderator := false
+	turbo := false
+	subscriber := false
+	broadcaster := false
+	staff := false
+	globalMod := false
+	displayName := ""
+	for _, badge := range badgesSplit {
+		switch badge {
+		case "mod=1":
+			moderator = true
+			continue
+		case "turbo=1":
+			turbo = true
+			continue
+		case "subscriber=1":
+			subscriber = true
+			continue
+		}
+		if strings.HasPrefix(badge, "display-name=") {
+			displayName = strings.TrimPrefix(badge, "display-name=")
+		}
+	}
+	if strings.Contains(badgesSplit[0], "broadcaster") {
+		broadcaster = true
+	}
+	if strings.Contains(badgesSplit[0], "global_mod") {
+		globalMod = true
+	}
+	if strings.Contains(badgesSplit[0], "staff") {
+		staff = true
+	}
+	user := User{
+		Name:        username,
+		Moderator:   moderator,
+		Subscriber:  subscriber,
+		Turbo:       turbo,
+		DisplayName: displayName,
+		Broadcaster: broadcaster,
+		Staff:       staff,
+		GlobalMod:   globalMod,
+	}
+	newMessage := Message{
+		Message: message,
+		Author:  &user,
+		Channel: &Channel{Name: channel},
+	}
+	return &newMessage, nil
 }
 
-// Parses sender from IRC packets
-func parseTagsSender(s string) (user, host string) {
-	temp := strings.Split(s, " ")
-	user = temp[1]
-	user = user[1:]
-	host = ""
-	if strings.Contains(user, "!") {
-		host = user[strings.Index(temp[1], "!"):]
-		user = user[:strings.Index(temp[1], "!")-1]
+func parseIRCPrivMsg(rawMessage string) (*Message, error) {
+	rawMessageSplit := strings.Split(rawMessage, " ")
+	usernameSplit := rawMessageSplit[1]
+	username := usernameSplit[1:]
+	if len(rawMessageSplit) < 4 {
+		return &Message{}, errors.New("couldn't parse message")
 	}
-	return user, host
+	channel := rawMessageSplit[3]
+	messageString := strings.Join(rawMessageSplit[3:], " ")
+	message := strings.TrimPrefix(messageString, ":")
+	user := User{
+		Name: username,
+	}
+	newMessage := Message{
+		Message: message,
+		Author:  &user,
+		Channel: &Channel{Name: channel},
+	}
+	return &newMessage, nil
 }
 
 // Parses most IRC packets
@@ -110,48 +189,24 @@ func parseSender(s string) (user, host string) {
 	return user, host
 }
 
-// Some string parsing functions to make life easy
-func stringLeft(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
-}
-
-func stringTrimLeft(s string, n int) string {
-	if len(s) <= n {
-		return ""
-	}
-	return s[n:]
-}
-
-func stringRight(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[len(s)-n:]
-}
-
-func stringTrimRight(s string, n int) string {
-	if len(s) <= n {
-		return ""
-	}
-	return s[:len(s)-n]
-}
-
-// End string parsing functions
-
 // Wrapper to write a message to the bot's log
 func writeLog(s string) {
 	fmt.Println("[" + time.Now().Format("2006/01/02 15:04:05") + "] <- " + s)
 }
 
 func connWatchdog(Instance *IRCInstance) {
+	IRCInstanceLock.Lock()
 	Instance.LastActive = time.Now()
+	IRCInstanceLock.Unlock()
 	for {
 		time.Sleep(1 * time.Second)
-		if time.Since(Instance.LastActive) > 300 * time.Second {
+		IRCInstanceLock.RLock()
+		timeSinceActive := time.Since(Instance.LastActive)
+		IRCInstanceLock.RUnlock()
+		if timeSinceActive > 300*time.Second {
+			IRCInstanceLock.Lock()
 			Instance.Conn.Close()
+			IRCInstanceLock.Unlock()
 			return
 		}
 	}
@@ -161,8 +216,10 @@ func (Instance *IRCInstance) JoinChannel(channelName string) {
 	if !strings.HasPrefix(channelName, "#") {
 		channelName = "#" + channelName
 	}
-	send(Instance.Conn, "JOIN "+channelName)
-	send(Instance.Conn, "CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands")
+	Instance.send("JOIN " + channelName)
+	if Instance.TwitchIRC {
+		Instance.send("CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands")
+	}
 }
 
 func New(address, username, password string) *IRCInstance {
@@ -170,52 +227,50 @@ func New(address, username, password string) *IRCInstance {
 }
 
 func (Instance *IRCInstance) RunIRC() {
-	var sock *net.TCPConn
-	for {
-		tempSock, err := connect(Instance.Address, Instance.Username, Instance.Password)
-		if !err {
-			sock = tempSock
-			Instance.Connected = true
-			break
-		}
-		writeLog("*** ERROR: Failed to connect to server, retrying in 10 seconds")
-		time.Sleep(10 * time.Second)
-	}
+	Instance.connect(Instance.Address, Instance.Username, Instance.Password)
 	go connWatchdog(Instance)
 	for {
 		buf := make([]byte, 8192)
-		l, err := sock.Read(buf)
+		l, err := Instance.Conn.Read(buf)
 		if err != nil {
+			IRCInstanceLock.Lock()
 			Instance.Connected = false
-			handle(sock, err) // TODO: Make this not just crash and burn on disconnect
+			IRCInstanceLock.Unlock()
+			// TODO add reconnect
 		}
 		if l < 1 {
 			continue
 		}
+		IRCInstanceLock.Lock()
 		Instance.LastActive = time.Now()
-		recv := strings.Split(string(buf[:l]), "\r\n")
-		for i := 0; i < len(recv); i++ {
-			temp := strings.Split(recv[i], " ")
-			switch temp[0] { // Special packet processing
+		IRCInstanceLock.Unlock()
+		rawMessageSplit := strings.Split(string(buf[:l]), "\r\n")
+		for i := 0; i < len(rawMessageSplit); i++ {
+			parsedMessageSplit := strings.Split(rawMessageSplit[i], " ")
+			// Empty message.
+			if len(parsedMessageSplit) <= 1 || parsedMessageSplit == nil {
+				continue
+			}
+			switch parsedMessageSplit[0] { // Special packet processing
 			case "PING":
-				if len(temp) < 2 {
+				if len(parsedMessageSplit) < 2 {
 					continue
 				}
-				send(sock, "PONG "+temp[1])
+				Instance.send("PONG " + parsedMessageSplit[1])
 				continue
 			case "ERROR":
-				writeLog("Connection to server closed. Reason: " + recv[0])
+				writeLog("Connection to server closed. Reason: " + rawMessageSplit[0])
 				return
 			}
-			if len(temp) < 2 {
+			if len(parsedMessageSplit) < 2 {
 				continue
 			}
-			switch temp[1] {
+
+			// Parse IRC Responses
+			switch parsedMessageSplit[1] {
 			case "001":
-				/// DISABLED FOR NOW
-				//TODO change this up
-				//send(sock, "JOIN "+Bot.Channel)
-				//send(sock, "CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands")
+				/// Welcome message from server.
+				Instance.sendServerReadyListener(Instance)
 			case "353":
 				//_, rawNames := parseMsg(recv[i])
 				//names := strings.Split(rawNames, " ")
@@ -224,21 +279,21 @@ func (Instance *IRCInstance) RunIRC() {
 				//blankOwners = true
 				continue
 			case "JOIN":
-				user, _ := parseSender(recv[i])
+				user, _ := parseSender(rawMessageSplit[i])
 				writeLog("*** " + user + " has joined the channel.")
-				writeLog(recv[i])
+				writeLog(rawMessageSplit[i])
 				continue
 			case "PART":
-				user, _ := parseSender(recv[i])
+				user, _ := parseSender(rawMessageSplit[i])
 				writeLog("* " + user + " has left the channel.")
 				continue
 			case "QUIT":
-				user, msg := parseMsg(recv[i])
+				user, msg := parseMsg(rawMessageSplit[i])
 				writeLog("* " + user + " has quit the chat. (" + msg + ")")
 				continue
 			case "MODE":
-				user, _ := parseSender(recv[i])
-				packet := strings.Split(recv[i], " ")
+				user, _ := parseSender(rawMessageSplit[i])
+				packet := strings.Split(rawMessageSplit[i], " ")
 				if len(packet) < 5 {
 					continue
 				}
@@ -248,64 +303,37 @@ func (Instance *IRCInstance) RunIRC() {
 				writeLog("*** " + user + " set mode " + packet[3] + " for " + packet[4])
 				continue
 			case "KICK":
-				user, msg := parseMsg(recv[i])
-				packet := strings.Split(recv[i], " ")
+				user, msg := parseMsg(rawMessageSplit[i])
+				packet := strings.Split(rawMessageSplit[i], " ")
 				if len(packet) < 4 {
 					continue
 				}
 				writeLog("*** " + packet[3] + " was kicked from the channel by " + user + " [" + msg + "]")
 				continue
 			case "PRIVMSG":
-				user, msg := parseMsg(recv[i])
-				if temp[2] == strings.ToLower(Instance.Username) {
-					temp[2] = user
-					if strings.ToUpper(stringLeft(msg, 7)) == "\001ACTION" && stringRight(msg, 1) == "\001" {
-						writeLog("* " + user + " " + stringTrimLeft(stringTrimRight(msg, 1), 8))
-					} else {
-						writeLog("From " + user + ": " + msg)
-					}
-				} else {
-					if strings.ToUpper(stringLeft(msg, 7)) == "\001ACTION" && stringRight(msg, 1) == "\001" {
-						writeLog("* " + user + " " + stringTrimLeft(stringTrimRight(msg, 1), 8))
-					} else {
-						writeLog("<" + user + "> " + msg)
-					}
-				}
-				writeLog(recv[i])
+				Instance.ircPRIVMSG(rawMessageSplit[i])
 				continue
 			case "NOTICE":
-				user, msg := parseMsg(recv[i])
+				user, msg := parseMsg(rawMessageSplit[i])
 				if strings.ToUpper(msg) == "\001VERSION\001" {
-					send(sock, "NOTICE "+user+" :\001VERSION SketchyIRCGo version 1.0 \001")
+					Instance.send("NOTICE " + user + " :\001VERSION SketchyIRCGo version 1.0 \001")
 					writeLog("*** Version check from " + user)
 					continue
 				}
 				writeLog("*** " + user + ": " + msg)
 				continue
 			}
-			// This switch if for Twitch.tv Tags Enabled //
-			switch temp[2] {
-			case "PRIVMSG":
-				user, msg := parseTagsMsg(recv[i])
-				if user == strings.ToLower(Instance.Username) {
-					if strings.ToUpper(stringLeft(msg, 7)) == "\001ACTION" && stringRight(msg, 1) == "\001" {
-						writeLog("* " + user + " " + stringTrimLeft(stringTrimRight(msg, 1), 8))
-					} else {
-						writeLog("From " + user + ": " + msg)
-					}
-				} else {
-					if strings.ToUpper(stringLeft(msg, 7)) == "\001ACTION" && stringRight(msg, 1) == "\001" {
-						writeLog("* " + user + " " + stringTrimLeft(stringTrimRight(msg, 1), 8))
-					} else {
-						writeLog("<" + user + "> " + msg)
-					}
+			// Parse Twitch IRC Messages
+			// Twitch is enabled so Twitch TAGS come before the IRC message.
+			if Instance.TwitchIRC {
+				switch parsedMessageSplit[2] {
+				case "PRIVMSG":
+					Instance.ircPRIVMSG(rawMessageSplit[i])
+					continue
+				case "USERSTATE":
+					continue
 				}
-
-				continue
-			case "USERSTATE":
-				continue
 			}
-			writeLog(recv[i])
 		}
 	}
 }
