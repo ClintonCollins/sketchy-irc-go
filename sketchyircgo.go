@@ -1,11 +1,10 @@
 package sketchyircgo
 
 import (
+	"errors"
 	"strings"
 	"time"
-	"errors"
 )
-
 
 func (Instance *IRCInstance) JoinChannel(channelName string) {
 	if !strings.HasPrefix(channelName, "#") {
@@ -15,7 +14,7 @@ func (Instance *IRCInstance) JoinChannel(channelName string) {
 	if Instance.TwitchIRC {
 		Instance.send("CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands")
 	}
-	Instance.ChannelsLock.Lock()
+	Instance.Lock()
 	newChannel := &Channel{}
 	_, exists := Instance.Channels[channelName]
 	if !exists {
@@ -24,7 +23,7 @@ func (Instance *IRCInstance) JoinChannel(channelName string) {
 		newChannel.Name = channelName
 		Instance.Channels[channelName] = newChannel
 	}
-	Instance.ChannelsLock.Unlock()
+	Instance.Unlock()
 }
 
 func (Instance *IRCInstance) PartChannel(channelName string) {
@@ -33,21 +32,21 @@ func (Instance *IRCInstance) PartChannel(channelName string) {
 	}
 	Instance.send("PART " + channelName)
 
-	Instance.ChannelsLock.Lock()
+	Instance.Lock()
 	channel, exists := Instance.Channels[channelName]
 	if exists {
 		delete(Instance.Channels, channel.Name)
 	}
-	Instance.ChannelsLock.Unlock()
+	Instance.Unlock()
 }
 
 func New(address, username, password string) *IRCInstance {
 	return &IRCInstance{Address: address,
-		Username: username,
-		Password: password,
-		Connected: false,
+		Username:     username,
+		Password:     password,
+		Connected:    false,
 		CloseChannel: make(chan bool),
-		Channels: make(map[string]*Channel),
+		Channels:     make(map[string]*Channel),
 	}
 }
 
@@ -55,7 +54,7 @@ func (Instance *IRCInstance) SendMessage(channelName, message string) {
 	if !strings.HasPrefix(channelName, "#") {
 		channelName = "#" + channelName
 	}
-	Instance.send("PRIVMSG "+ channelName+" :"+message)
+	Instance.send("PRIVMSG " + channelName + " :" + message)
 }
 
 func (Instance *IRCInstance) Close() {
@@ -89,9 +88,9 @@ func (Instance *IRCInstance) RunIRC() error {
 		if l < 1 {
 			continue
 		}
-		Instance.SafetyLock.Lock()
+		Instance.Lock()
 		Instance.LastActive = time.Now()
-		Instance.SafetyLock.Unlock()
+		Instance.Unlock()
 		rawMessageSplit := strings.Split(string(buf[:l]), "\r\n")
 		for i := 0; i < len(rawMessageSplit); i++ {
 			parsedMessageSplit := strings.Split(rawMessageSplit[i], " ")

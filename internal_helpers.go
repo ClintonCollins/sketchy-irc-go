@@ -1,10 +1,10 @@
 package sketchyircgo
 
 import (
-	"fmt"
-	"time"
-	"net"
 	"errors"
+	"fmt"
+	"net"
+	"time"
 )
 
 func (Instance *IRCInstance) send(message string) {
@@ -14,12 +14,12 @@ func (Instance *IRCInstance) send(message string) {
 
 // Wrapper to easily connect to an IRC server
 func (Instance *IRCInstance) connect(Address, Username, Password string, MaxAttempts int) error {
-	Instance.SafetyLock.Lock()
+	Instance.Lock()
 	if Instance.Connected {
 		Instance.Connected = false
 		Instance.Conn.Close()
 	}
-	Instance.SafetyLock.Unlock()
+	Instance.Unlock()
 	rt := 1
 	rc := 0
 	raddr, err := net.ResolveTCPAddr("tcp", Address)
@@ -47,10 +47,10 @@ func (Instance *IRCInstance) connect(Address, Username, Password string, MaxAtte
 				time.Sleep(time.Duration(rt) * time.Second)
 				continue
 			} else {
-				Instance.SafetyLock.Lock()
+				Instance.Lock()
 				Instance.Conn = s
 				Instance.Connected = true
-				Instance.SafetyLock.Unlock()
+				Instance.Unlock()
 				if Password != "" {
 					Instance.send(fmt.Sprintf("PASS %s", Password))
 				}
@@ -74,35 +74,35 @@ func writeLog(s string) {
 }
 
 func connWatchdog(Instance *IRCInstance) {
-	Instance.SafetyLock.Lock()
+	Instance.Lock()
 	Instance.LastActive = time.Now()
-	Instance.SafetyLock.Unlock()
+	Instance.Unlock()
 	tick := time.Tick(1 * time.Second)
 	for {
 		select {
 		case <-Instance.CloseChannel:
 			if Instance.Connected {
 				Instance.send("QUIT :Closing")
-				Instance.SafetyLock.Lock()
+				Instance.Lock()
 				Instance.Connected = false
 				Instance.Conn.Close()
-				Instance.SafetyLock.Unlock()
+				Instance.Unlock()
 				return
 			}
 		case <-tick:
-			Instance.SafetyLock.RLock()
+			Instance.RLock()
 			timeSinceActive := time.Since(Instance.LastActive)
 			if !Instance.Connected {
-				Instance.SafetyLock.RUnlock()
+				Instance.RUnlock()
 				return
 			}
-			Instance.SafetyLock.RUnlock()
+			Instance.RUnlock()
 			if timeSinceActive > 300*time.Second {
 				writeLog("Connection appears dead, attempting reconnect")
-				Instance.SafetyLock.Lock()
+				Instance.Lock()
 				Instance.Connected = false
 				Instance.Conn.Close()
-				Instance.SafetyLock.Unlock()
+				Instance.Unlock()
 				return
 			}
 		}
