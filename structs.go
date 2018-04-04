@@ -14,14 +14,16 @@ type IRCInstance struct {
 	Conn         *net.TCPConn
 	LastActive   time.Time
 	TwitchIRC    bool
-	Channels     []*Channel
+	ChannelsLock sync.RWMutex
+	Channels     map[string]*Channel
 	SafetyLock   sync.RWMutex
 	CloseChannel chan bool
 }
 
 type Channel struct {
 	Name       string
-	Moderators []*User
+	Moderators map[string]*User
+	Users      map[string]*User
 }
 
 type Message struct {
@@ -52,4 +54,16 @@ type ModeChange struct {
 	Sender   string
 	Receiver string
 	Mode     string
+}
+
+type UserJoin struct {
+	Channel *Channel
+	Time    time.Time
+	User    *User
+}
+
+type UserPart struct {
+	Channel *Channel
+	Time    time.Time
+	User    *User
 }

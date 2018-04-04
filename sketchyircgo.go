@@ -15,9 +15,16 @@ func (Instance *IRCInstance) JoinChannel(channelName string) {
 	if Instance.TwitchIRC {
 		Instance.send("CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands")
 	}
-	Instance.SafetyLock.Lock()
-	Instance.Channels = append(Instance.Channels, &Channel{Name: channelName})
-	Instance.SafetyLock.Unlock()
+	Instance.ChannelsLock.Lock()
+	newChannel := &Channel{}
+	_, exists := Instance.Channels[channelName]
+	if !exists {
+		newChannel.Moderators = make(map[string]*User)
+		newChannel.Users = make(map[string]*User)
+		newChannel.Name = channelName
+		Instance.Channels[channelName] = newChannel
+	}
+	Instance.ChannelsLock.Unlock()
 }
 
 func (Instance *IRCInstance) PartChannel(channelName string) {
@@ -25,16 +32,13 @@ func (Instance *IRCInstance) PartChannel(channelName string) {
 		channelName = "#" + channelName
 	}
 	Instance.send("PART " + channelName)
-	Instance.SafetyLock.Lock()
-	for index, channel := range Instance.Channels {
-		if channel.Name == channelName {
-			copy(Instance.Channels[index:], Instance.Channels[index+1:])
-			Instance.Channels[len(Instance.Channels)-1] = nil
-			Instance.Channels = Instance.Channels[:len(Instance.Channels)-1]
-			break
-		}
+
+	Instance.ChannelsLock.Lock()
+	channel, exists := Instance.Channels[channelName]
+	if exists {
+		delete(Instance.Channels, channel.Name)
 	}
-	Instance.SafetyLock.Unlock()
+	Instance.ChannelsLock.Unlock()
 }
 
 func New(address, username, password string) *IRCInstance {
@@ -43,6 +47,7 @@ func New(address, username, password string) *IRCInstance {
 		Password: password,
 		Connected: false,
 		CloseChannel: make(chan bool),
+		Channels: make(map[string]*Channel),
 	}
 }
 
@@ -122,13 +127,16 @@ func (Instance *IRCInstance) RunIRC() error {
 				//blankOwners = true
 				continue
 			case "JOIN":
-				user, _ := parseSender(rawMessageSplit[i])
-				writeLog("*** " + user + " has joined the channel.")
-				writeLog(rawMessageSplit[i])
+				//user, _ := parseSender(rawMessageSplit[i])
+				//writeLog("*** " + user + " has joined the channel.")
+				//writeLog(rawMessageSplit[i])
+				Instance.ircJOIN(rawMessageSplit[i])
 				continue
 			case "PART":
-				user, _ := parseSender(rawMessageSplit[i])
-				writeLog("* " + user + " has left the channel.")
+				//user, _ := parseSender(rawMessageSplit[i])
+				//writeLog("* " + user + " has left the channel.")
+				//writeLog(rawMessageSplit[i])
+				Instance.ircPART(rawMessageSplit[i])
 				continue
 			case "QUIT":
 				user, msg := parseMsg(rawMessageSplit[i])

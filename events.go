@@ -9,6 +9,10 @@ var (
 	serverJoinEventHandlersLock sync.RWMutex
 	modeChangeEventHandlers     []func(*IRCInstance, *ModeChange)
 	modeChangeEventHandlersLock sync.RWMutex
+	userJoinEventHandlers       []func(*IRCInstance, *UserJoin)
+	userJoinEventHandlersLock   sync.RWMutex
+	userPartEventHandlers       []func(*IRCInstance, *UserPart)
+	userPartEventHandlersLock   sync.RWMutex
 )
 
 func (Instance *IRCInstance) NewMessageListener(function func(*IRCInstance, *Message)) {
@@ -51,4 +55,32 @@ func (Instance *IRCInstance) sendServerReadyListener(instance *IRCInstance) {
 		listener(instance)
 	}
 	serverJoinEventHandlersLock.Unlock()
+}
+
+func (Instance *IRCInstance) NewUserJoinListener(function func(*IRCInstance, *UserJoin)) {
+	userJoinEventHandlersLock.Lock()
+	userJoinEventHandlers = append(userJoinEventHandlers, function)
+	userJoinEventHandlersLock.Unlock()
+}
+
+func (Instance *IRCInstance) sendUserJoinListener(instance *IRCInstance, userJoin *UserJoin) {
+	userJoinEventHandlersLock.Lock()
+	for _, listener := range userJoinEventHandlers {
+		listener(instance, userJoin)
+	}
+	userJoinEventHandlersLock.Unlock()
+}
+
+func (Instance *IRCInstance) NewUserPartListener(function func(*IRCInstance, *UserPart)) {
+	userPartEventHandlersLock.Lock()
+	userPartEventHandlers = append(userPartEventHandlers, function)
+	userPartEventHandlersLock.Unlock()
+}
+
+func (Instance *IRCInstance) sendUserJPartListener(instance *IRCInstance, userPart *UserPart) {
+	userPartEventHandlersLock.Lock()
+	for _, listener := range userPartEventHandlers {
+		listener(instance, userPart)
+	}
+	userPartEventHandlersLock.Unlock()
 }
