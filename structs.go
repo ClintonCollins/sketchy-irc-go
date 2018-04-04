@@ -2,20 +2,21 @@ package sketchyircgo
 
 import (
 	"net"
-	"time"
 	"sync"
+	"time"
 )
 
 type IRCInstance struct {
-	Address    string
-	Username   string
-	Password   string
-	Connected  bool
-	Conn       *net.TCPConn
-	LastActive time.Time
-	TwitchIRC  bool
-	Channels   []*Channel
-	SafetyLock sync.RWMutex
+	Address      string
+	Username     string
+	Password     string
+	Connected    bool
+	Conn         *net.TCPConn
+	LastActive   time.Time
+	TwitchIRC    bool
+	Channels     []*Channel
+	SafetyLock   sync.RWMutex
+	CloseChannel chan bool
 }
 
 type Channel struct {

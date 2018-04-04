@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 	"net"
+	"errors"
 )
 
 func (Instance *IRCInstance) send(message string) {
@@ -12,33 +13,58 @@ func (Instance *IRCInstance) send(message string) {
 }
 
 // Wrapper to easily connect to an IRC server
-func (Instance *IRCInstance) connect(Address, Username, OAuth string) {
+func (Instance *IRCInstance) connect(Address, Username, Password string, MaxAttempts int) error {
+	Instance.SafetyLock.Lock()
+	if Instance.Connected {
+		Instance.Connected = false
+		Instance.Conn.Close()
+	}
+	Instance.SafetyLock.Unlock()
+	rt := 1
+	rc := 0
 	raddr, err := net.ResolveTCPAddr("tcp", Address)
 	if err != nil {
-		panic(err)
+		return errors.New("failed to resolve remote address")
 	}
-	s, err := net.DialTCP("tcp", nil, raddr)
-	Instance.SafetyLock.Lock()
-	Instance.Conn = s
-	Instance.SafetyLock.Unlock()
-	if err != nil {
-		Instance.SafetyLock.Lock()
-		Instance.Connected = false
-		Instance.SafetyLock.Unlock()
-		panic(err)
-	} else {
-		Instance.SafetyLock.Lock()
-		Instance.Connected = true
-		Instance.SafetyLock.Unlock()
-		Instance.send("PASS " + OAuth)
-		Instance.send("NICK " + Username)
-		Instance.send("USER " + Username + Username + Address + " :" + Username)
+	for {
+		select {
+		case <-Instance.CloseChannel:
+			return nil
+		default:
+			s, err := net.DialTCP("tcp", nil, raddr)
+			if err != nil {
+				rc++
+				if rc > MaxAttempts && MaxAttempts > -1 {
+					writeLog("Reconnect attempt limit exceeded")
+					return errors.New("reconnect attempt limit exceeded")
+				}
+				rt *= 2
+				if rt > 60 {
+					rt = 60
+				}
+				writeLog(fmt.Sprintf("Failed to connect to server (attempt %d of %d). Reason: %s", rc, MaxAttempts, err.Error()))
+				writeLog(fmt.Sprintf("Retrying in %d seconds", rt))
+				time.Sleep(time.Duration(rt) * time.Second)
+				continue
+			} else {
+				Instance.SafetyLock.Lock()
+				Instance.Conn = s
+				Instance.Connected = true
+				Instance.SafetyLock.Unlock()
+				if Password != "" {
+					Instance.send(fmt.Sprintf("PASS %s", Password))
+				}
+				Instance.send(fmt.Sprintf("NICK %s", Username))
+				Instance.send(fmt.Sprintf("USER %s %s %s :%s", Username, Username, Address, Username))
+				return nil
+			}
+		}
 	}
 }
 
 // Gracefully exit server and throw a stack trace when closing
 func (Instance *IRCInstance) handle(s *net.TCPConn, e error) {
-	Instance.send("QUIT :Segfault >:O")
+	Instance.send("QUIT :Segfault >:(")
 	panic(e)
 }
 
@@ -51,16 +77,34 @@ func connWatchdog(Instance *IRCInstance) {
 	Instance.SafetyLock.Lock()
 	Instance.LastActive = time.Now()
 	Instance.SafetyLock.Unlock()
+	tick := time.Tick(1 * time.Second)
 	for {
-		time.Sleep(1 * time.Second)
-		Instance.SafetyLock.RLock()
-		timeSinceActive := time.Since(Instance.LastActive)
-		Instance.SafetyLock.RUnlock()
-		if timeSinceActive > 300*time.Second {
-			Instance.SafetyLock.Lock()
-			Instance.Conn.Close()
-			Instance.SafetyLock.Unlock()
-			return
+		select {
+		case <-Instance.CloseChannel:
+			if Instance.Connected {
+				Instance.send("QUIT :Closing")
+				Instance.SafetyLock.Lock()
+				Instance.Connected = false
+				Instance.Conn.Close()
+				Instance.SafetyLock.Unlock()
+				return
+			}
+		case <-tick:
+			Instance.SafetyLock.RLock()
+			timeSinceActive := time.Since(Instance.LastActive)
+			if !Instance.Connected {
+				Instance.SafetyLock.RUnlock()
+				return
+			}
+			Instance.SafetyLock.RUnlock()
+			if timeSinceActive > 300*time.Second {
+				writeLog("Connection appears dead, attempting reconnect")
+				Instance.SafetyLock.Lock()
+				Instance.Connected = false
+				Instance.Conn.Close()
+				Instance.SafetyLock.Unlock()
+				return
+			}
 		}
 	}
 }

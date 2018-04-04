@@ -3,6 +3,7 @@ package sketchyircgo
 import (
 	"strings"
 	"time"
+	"errors"
 )
 
 
@@ -37,7 +38,12 @@ func (Instance *IRCInstance) PartChannel(channelName string) {
 }
 
 func New(address, username, password string) *IRCInstance {
-	return &IRCInstance{Address: address, Username: username, Password: password}
+	return &IRCInstance{Address: address,
+		Username: username,
+		Password: password,
+		Connected: false,
+		CloseChannel: make(chan bool),
+	}
 }
 
 func (Instance *IRCInstance) SendMessage(channelName, message string) {
@@ -47,17 +53,33 @@ func (Instance *IRCInstance) SendMessage(channelName, message string) {
 	Instance.send("PRIVMSG "+ channelName+" :"+message)
 }
 
-func (Instance *IRCInstance) RunIRC() {
-	Instance.connect(Instance.Address, Instance.Username, Instance.Password)
+func (Instance *IRCInstance) Close() {
+	Instance.CloseChannel <- true
+}
+
+func (Instance *IRCInstance) RunIRC() error {
+	if err := Instance.connect(Instance.Address, Instance.Username, Instance.Password, -1); err != nil {
+		return err
+	}
+	if !Instance.Connected { // connect bailed with no error, just exit
+		return nil
+	}
 	go connWatchdog(Instance)
 	for {
 		buf := make([]byte, 8192)
 		l, err := Instance.Conn.Read(buf)
 		if err != nil {
-			Instance.SafetyLock.Lock()
-			Instance.Connected = false
-			Instance.SafetyLock.Unlock()
-			// TODO add reconnect
+			if !Instance.Connected { // disconnect was intentional, just exit
+				return nil
+			}
+			if err := Instance.connect(Instance.Address, Instance.Username, Instance.Password, -1); err != nil {
+				return err
+			}
+			if !Instance.Connected { // connect bailed with no error, just exit
+				return nil
+			}
+			go connWatchdog(Instance)
+			continue
 		}
 		if l < 1 {
 			continue
@@ -81,7 +103,7 @@ func (Instance *IRCInstance) RunIRC() {
 				continue
 			case "ERROR":
 				writeLog("Connection to server closed. Reason: " + rawMessageSplit[0])
-				return
+				return errors.New("connection to server closed with reason " + rawMessageSplit[0])
 			}
 			if len(parsedMessageSplit) < 2 {
 				continue
