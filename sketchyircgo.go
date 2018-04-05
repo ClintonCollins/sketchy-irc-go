@@ -11,17 +11,17 @@ func (Instance *IRCInstance) JoinChannel(channelName string) {
 		channelName = "#" + channelName
 	}
 	Instance.send("JOIN " + channelName)
-	if Instance.TwitchIRC {
+	if Instance.twitchIRC {
 		Instance.send("CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands")
 	}
 	Instance.Lock()
 	newChannel := &Channel{}
-	_, exists := Instance.Channels[channelName]
+	_, exists := Instance.channels[channelName]
 	if !exists {
-		newChannel.Moderators = make(map[string]*User)
-		newChannel.Users = make(map[string]*User)
-		newChannel.Name = channelName
-		Instance.Channels[channelName] = newChannel
+		newChannel.moderators = make(map[string]*User)
+		newChannel.users = make(map[string]*User)
+		newChannel.name = channelName
+		Instance.channels[channelName] = newChannel
 	}
 	Instance.Unlock()
 }
@@ -33,20 +33,20 @@ func (Instance *IRCInstance) PartChannel(channelName string) {
 	Instance.send("PART " + channelName)
 
 	Instance.Lock()
-	channel, exists := Instance.Channels[channelName]
+	channel, exists := Instance.channels[channelName]
 	if exists {
-		delete(Instance.Channels, channel.Name)
+		delete(Instance.channels, channel.name)
 	}
 	Instance.Unlock()
 }
 
 func New(address, username, password string) *IRCInstance {
-	return &IRCInstance{Address: address,
-		Username:     username,
-		Password:     password,
-		Connected:    false,
-		CloseChannel: make(chan bool),
-		Channels:     make(map[string]*Channel),
+	return &IRCInstance{address: address,
+		username:     username,
+		password:     password,
+		connected:    false,
+		closeChannel: make(chan bool),
+		channels:     make(map[string]*Channel),
 	}
 }
 
@@ -58,28 +58,28 @@ func (Instance *IRCInstance) SendMessage(channelName, message string) {
 }
 
 func (Instance *IRCInstance) Close() {
-	Instance.CloseChannel <- true
+	Instance.closeChannel <- true
 }
 
 func (Instance *IRCInstance) RunIRC() error {
-	if err := Instance.connect(Instance.Address, Instance.Username, Instance.Password, -1); err != nil {
+	if err := Instance.connect(Instance.address, Instance.username, Instance.password, -1); err != nil {
 		return err
 	}
-	if !Instance.Connected { // connect bailed with no error, just exit
+	if !Instance.connected { // connect bailed with no error, just exit
 		return nil
 	}
 	go connWatchdog(Instance)
 	for {
 		buf := make([]byte, 8192)
-		l, err := Instance.Conn.Read(buf)
+		l, err := Instance.conn.Read(buf)
 		if err != nil {
-			if !Instance.Connected { // disconnect was intentional, just exit
+			if !Instance.connected { // disconnect was intentional, just exit
 				return nil
 			}
-			if err := Instance.connect(Instance.Address, Instance.Username, Instance.Password, -1); err != nil {
+			if err := Instance.connect(Instance.address, Instance.username, Instance.password, -1); err != nil {
 				return err
 			}
-			if !Instance.Connected { // connect bailed with no error, just exit
+			if !Instance.connected { // connect bailed with no error, just exit
 				return nil
 			}
 			go connWatchdog(Instance)
@@ -89,7 +89,7 @@ func (Instance *IRCInstance) RunIRC() error {
 			continue
 		}
 		Instance.Lock()
-		Instance.LastActive = time.Now()
+		Instance.lastActive = time.Now()
 		Instance.Unlock()
 		rawMessageSplit := strings.Split(string(buf[:l]), "\r\n")
 		for i := 0; i < len(rawMessageSplit); i++ {
@@ -167,7 +167,7 @@ func (Instance *IRCInstance) RunIRC() error {
 			}
 			// Parse Twitch IRC Messages
 			// Twitch is enabled so Twitch TAGS come before the IRC message.
-			if Instance.TwitchIRC {
+			if Instance.twitchIRC {
 				switch parsedMessageSplit[2] {
 				case "PRIVMSG":
 					Instance.ircPRIVMSG(rawMessageSplit[i])

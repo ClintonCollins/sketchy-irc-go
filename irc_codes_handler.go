@@ -1,7 +1,7 @@
 package sketchyircgo
 
 func (Instance *IRCInstance) ircPRIVMSG(rawMessage string) {
-	if Instance.TwitchIRC {
+	if Instance.twitchIRC {
 		message, err := Instance.parseTwitchPrivMsg(rawMessage)
 		if err != nil {
 			writeLog("Error parsing Twitch message.")
@@ -30,24 +30,24 @@ func (Instance *IRCInstance) ircMODE(rawMessage string) {
 		// Find the user if they exist already in the channel, otherwise create a new one.
 		Instance.Lock()
 		newUser := &User{}
-		user, exists := modeChange.Channel.Users[modeChange.Receiver]
+		user, exists := modeChange.Channel.users[modeChange.Receiver]
 		if !exists {
 			newUser.Name = modeChange.Receiver
 			newUser.DisplayName = modeChange.Receiver
 			user = newUser
 		}
 		modeChange.Channel.Lock()
-		modeChange.Channel.Moderators[user.Name] = user
+		modeChange.Channel.moderators[user.Name] = user
 		modeChange.Channel.Unlock()
 		Instance.Unlock()
 
 	} else if modeChange.Mode == "-o" { // If mode is -o that means moderator was taken away.
 		Instance.Lock()
 		// Find the user if they exist already in moderators, otherwise create a new one.
-		_, exists := modeChange.Channel.Moderators[modeChange.Receiver]
+		_, exists := modeChange.Channel.moderators[modeChange.Receiver]
 		if exists {
 			modeChange.Channel.Lock()
-			delete(modeChange.Channel.Moderators, modeChange.Receiver)
+			delete(modeChange.Channel.moderators, modeChange.Receiver)
 			modeChange.Channel.Unlock()
 		}
 		Instance.Unlock()
@@ -65,13 +65,13 @@ func (Instance *IRCInstance) ircJOIN(rawMessage string) {
 	Instance.Lock()
 	channel := userJoin.Channel
 	newUser := &User{}
-	user, exists := userJoin.Channel.Users[userJoin.User.Name]
+	user, exists := userJoin.Channel.users[userJoin.User.Name]
 	if !exists {
 		newUser.Name = userJoin.User.Name
 		newUser.DisplayName = userJoin.User.Name
 		user = newUser
 	}
-	channel.Users[user.Name] = user
+	channel.users[user.Name] = user
 	Instance.Unlock()
 	Instance.sendUserJoinListener(Instance, userJoin)
 }
@@ -84,9 +84,9 @@ func (Instance *IRCInstance) ircPART(rawMessage string) {
 	}
 	Instance.Lock()
 	channel := userPart.Channel
-	user, exists := userPart.Channel.Users[userPart.User.Name]
+	user, exists := userPart.Channel.users[userPart.User.Name]
 	if exists {
-		delete(channel.Users, user.Name)
+		delete(channel.users, user.Name)
 	}
 	Instance.Unlock()
 	Instance.sendUserJPartListener(Instance, userPart)

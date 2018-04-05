@@ -20,11 +20,11 @@ func (Instance *IRCInstance) parseIRCPrivMsg(rawMessage string) (*Message, error
 	// Find the channel if it exists already for the instance, otherwise create a new one.
 	Instance.Lock()
 	newChannel := &Channel{}
-	channel, exists := Instance.Channels[channelName]
+	channel, exists := Instance.channels[channelName]
 	if !exists {
-		newChannel.Moderators = make(map[string]*User)
-		newChannel.Users = make(map[string]*User)
-		newChannel.Name = channelName
+		newChannel.moderators = make(map[string]*User)
+		newChannel.users = make(map[string]*User)
+		newChannel.name = channelName
 		channel = newChannel
 	}
 	Instance.Unlock()
@@ -32,7 +32,7 @@ func (Instance *IRCInstance) parseIRCPrivMsg(rawMessage string) (*Message, error
 	// Find the user if they exist already in the channel, otherwise create a new one.
 	Instance.Lock()
 	newUser := &User{}
-	user, exists := channel.Users[username]
+	user, exists := channel.users[username]
 	if !exists {
 		newUser.Name = username
 		newUser.DisplayName = username
@@ -61,11 +61,11 @@ func (Instance *IRCInstance) parseModeChange(rawmessage string) (*ModeChange, er
 	// Find the channel if it exists already for the instance, otherwise create a new one.
 	Instance.Lock()
 	newChannel := &Channel{}
-	channel, exists := Instance.Channels[channelName]
+	channel, exists := Instance.channels[channelName]
 	if !exists {
-		newChannel.Moderators = make(map[string]*User)
-		newChannel.Users = make(map[string]*User)
-		newChannel.Name = channelName
+		newChannel.moderators = make(map[string]*User)
+		newChannel.users = make(map[string]*User)
+		newChannel.name = channelName
 		channel = newChannel
 	}
 	Instance.Unlock()
@@ -91,11 +91,11 @@ func (Instance *IRCInstance) parseIRCJoin(rawMessage string) (*UserJoin, error) 
 	// Find the channel if it exists already for the instance, otherwise create a new one.
 	Instance.Lock()
 	newChannel := &Channel{}
-	channel, exists := Instance.Channels[channelName]
+	channel, exists := Instance.channels[channelName]
 	if !exists {
-		newChannel.Moderators = make(map[string]*User)
-		newChannel.Users = make(map[string]*User)
-		newChannel.Name = channelName
+		newChannel.moderators = make(map[string]*User)
+		newChannel.users = make(map[string]*User)
+		newChannel.name = channelName
 		channel = newChannel
 	}
 	Instance.Unlock()
@@ -103,7 +103,7 @@ func (Instance *IRCInstance) parseIRCJoin(rawMessage string) (*UserJoin, error) 
 	// Find the user if they exist already in the channel, otherwise create a new one.
 	Instance.Lock()
 	newUser := &User{}
-	user, exists := channel.Users[username]
+	user, exists := channel.users[username]
 	if !exists {
 		newUser.Name = username
 		newUser.DisplayName = username
@@ -132,11 +132,11 @@ func (Instance *IRCInstance) parseIRCPart(rawMessage string) (*UserPart, error) 
 	// Find the channel if it exists already for the instance, otherwise create a new one.
 	Instance.Lock()
 	newChannel := &Channel{}
-	channel, exists := Instance.Channels[channelName]
+	channel, exists := Instance.channels[channelName]
 	if !exists {
-		newChannel.Moderators = make(map[string]*User)
-		newChannel.Users = make(map[string]*User)
-		newChannel.Name = channelName
+		newChannel.moderators = make(map[string]*User)
+		newChannel.users = make(map[string]*User)
+		newChannel.name = channelName
 		channel = newChannel
 	}
 	Instance.Unlock()
@@ -144,7 +144,7 @@ func (Instance *IRCInstance) parseIRCPart(rawMessage string) (*UserPart, error) 
 	// Find the user if they exist already in the channel, otherwise create a new one.
 	Instance.Lock()
 	newUser := &User{}
-	user, exists := channel.Users[username]
+	user, exists := channel.users[username]
 	if !exists {
 		newUser.Name = username
 		newUser.DisplayName = username
@@ -229,11 +229,11 @@ func (Instance *IRCInstance) parseTwitchPrivMsg(rawMessage string) (*Message, er
 	// Find the channel if it exists already for the instance, otherwise create a new one.
 	Instance.Lock()
 	newChannel := &Channel{}
-	channel, exists := Instance.Channels[channelName]
+	channel, exists := Instance.channels[channelName]
 	if !exists {
-		newChannel.Moderators = make(map[string]*User)
-		newChannel.Users = make(map[string]*User)
-		newChannel.Name = channelName
+		newChannel.moderators = make(map[string]*User)
+		newChannel.users = make(map[string]*User)
+		newChannel.name = channelName
 		channel = newChannel
 	}
 	Instance.Unlock()
@@ -241,7 +241,7 @@ func (Instance *IRCInstance) parseTwitchPrivMsg(rawMessage string) (*Message, er
 	// Find the user if they exist already in the channel, otherwise create a new one.
 	Instance.Lock()
 	newUser := &User{}
-	user, exists := channel.Users[username]
+	user, exists := channel.users[username]
 	if !exists {
 		newUser.Name = username
 		newUser.Moderator = moderator
@@ -262,7 +262,7 @@ func (Instance *IRCInstance) parseTwitchPrivMsg(rawMessage string) (*Message, er
 		user.Staff = staff
 		user.GlobalMod = globalMod
 
-		channel.Users[user.Name] = user
+		channel.users[user.Name] = user
 	}
 	Instance.Unlock()
 

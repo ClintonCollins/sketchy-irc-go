@@ -7,22 +7,22 @@ import (
 )
 
 type IRCInstance struct {
-	Address    string
-	Username   string
-	Password   string
-	Connected  bool
-	Conn       *net.TCPConn
-	LastActive time.Time
-	TwitchIRC  bool
-	Channels map[string]*Channel
-	CloseChannel chan bool
+	address    string
+	username   string
+	password   string
+	connected  bool
+	conn       *net.TCPConn
+	lastActive time.Time
+	twitchIRC  bool
+	channels map[string]*Channel
+	closeChannel chan bool
 	sync.RWMutex
 }
 
 type Channel struct {
-	Name       string
-	Moderators map[string]*User
-	Users      map[string]*User
+	name       string
+	moderators map[string]*User
+	users      map[string]*User
 	sync.RWMutex
 }
 
